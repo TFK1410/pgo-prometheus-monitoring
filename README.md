@@ -38,7 +38,7 @@ The steps for deployment are as follows:
 8. Deploy the prometheus.yml bundle
 9. Deploy the servicemonitors.yml
 
-## Deploy alertmanager
+## Deploy Alertmanager
 10. Create oauth session secret:
    ```bash
    # oc -n pgo-monitoring create secret generic alertmanager-pgo-proxy --from-literal=session_secret=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c43)
@@ -77,7 +77,7 @@ All of those dashboards were downloaded from the pgmonitor project at v3.2.
    ```
 17. Deploy grafana.yml (log in and make sure that Prometheus is set as the default datasource)
 
-## Deploy additional Prometheus rules
+## Deploy Prometheus rules
 18. Deploy prometheusrules.yml
 19. Deploy prometheusrecs.yml for some additional recording rules
 
