@@ -1,0 +1,181 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus-k8s-pgo
+  annotations:
+    serviceaccounts.openshift.io/oauth-redirectreference.prometheus-k8s-pgo: '{"kind":"OAuthRedirectReference","apiVersion":"v1","reference":{"kind":"Route","name":"prometheus-k8s"}}'
+---
+apiVersion: authorization.openshift.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-k8s-pgo
+roleRef:
+  name: prometheus-k8s-pgo
+subjects:
+- kind: ServiceAccount
+  name: prometheus-k8s-pgo
+  namespace: pgo-monitoring
+userNames:
+- system:serviceaccount:pgo-monitoring:prometheus-k8s-pgo
+---
+apiVersion: authorization.openshift.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-k8s-pgo
+rules:
+- apiGroups:
+  - ""
+  attributeRestrictions: null
+  resources:
+  - nodes/metrics
+  verbs:
+  - get
+- apiGroups: null
+  attributeRestrictions: null
+  nonResourceURLs:
+  - /metrics
+  resources: []
+  verbs:
+  - get
+- apiGroups:
+  - authentication.k8s.io
+  attributeRestrictions: null
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  attributeRestrictions: null
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
+  - ""
+  attributeRestrictions: null
+  resources:
+  - namespaces
+  - pods
+  - services
+  - endpoints
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: v1
+kind: Route
+metadata:
+  name: prometheus-k8s
+  namespace: pgo-monitoring
+spec:
+  port:
+    targetPort: web
+  tls:
+    insecureEdgeTerminationPolicy: Redirect
+    termination: Reencrypt
+  to:
+    kind: Service
+    name: prometheus-k8s-pgo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    service.alpha.openshift.io/serving-cert-secret-name: prometheus-k8s-tls
+  labels:
+    prometheus: k8s-pgo
+  name: prometheus-k8s-pgo
+  namespace: pgo-monitoring
+spec:
+  ports:
+  - name: web
+    port: 9091
+    targetPort: web
+  selector:
+    app: prometheus
+    prometheus: k8s-pgo
+  sessionAffinity: ClientIP
+  type: ClusterIP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  labels:
+    prometheus: k8s-pgo
+  name: k8s-pgo
+  namespace: pgo-monitoring
+spec:
+  alerting:
+    alertmanagers:
+    - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      name: alertmanager-pgo
+      namespace: pgo-monitoring
+      port: web
+      scheme: https
+      tlsConfig:
+        caFile: /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
+        serverName: alertmanager-pgo.pgo-monitoring.svc
+  baseImage: openshift/prometheus
+  containers:
+  - args:
+    - -provider=openshift
+    - -https-address=:9091
+    - -http-address=
+    - -email-domain=*
+    - -upstream=http://localhost:9090
+    - -htpasswd-file=/etc/proxy/htpasswd/auth
+    - -openshift-service-account=prometheus-k8s-pgo
+    - '-openshift-sar={"resource": "namespaces", "verb": "get"}'
+    - '-openshift-delegate-urls={"/": {"resource": "namespaces", "verb": "get"}}'
+    - -tls-cert=/etc/tls/private/tls.crt
+    - -tls-key=/etc/tls/private/tls.key
+    - -client-secret-file=/var/run/secrets/kubernetes.io/serviceaccount/token
+    - -cookie-secret-file=/etc/proxy/secrets/session_secret
+    - -openshift-ca=/etc/pki/tls/cert.pem
+    - -openshift-ca=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    - -skip-auth-regex=^/metrics
+    image: openshift/oauth-proxy:latest
+    name: prometheus-proxy
+    ports:
+    - containerPort: 9091
+      name: web
+    resources:
+      requests:
+        cpu: 10m
+        memory: 20Mi
+    terminationMessagePolicy: FallbackToLogsOnError
+    volumeMounts:
+    - mountPath: /etc/tls/private
+      name: secret-prometheus-k8s-tls
+    - mountPath: /etc/proxy/secrets
+      name: secret-prometheus-k8s-pgo-proxy
+    - mountPath: /etc/proxy/htpasswd
+      name: secret-prometheus-k8s-htpasswd
+  externalLabels:
+    cluster: <CLUSTER>
+  externalUrl: https://prometheus-k8s-pgo-monitoring.<CLUSTER>/
+  listenLocal: true
+  replicas: 2
+  retention: 15d
+  ruleSelector:
+    matchLabels:
+      prometheus: k8s-pgo
+  serviceAccountName: prometheus-k8s-pgo
+  serviceMonitorSelector:
+    matchExpressions:
+    - key: k8s-app
+      operator: Exists
+  secrets:
+  - prometheus-k8s-pgo-proxy
+  - prometheus-k8s-tls
+  - prometheus-k8s-htpasswd
+  storage:
+    volumeClaimTemplate:
+      spec:
+        resources:
+          requests:
+            storage: 10Gi
+  version: v2.5.0

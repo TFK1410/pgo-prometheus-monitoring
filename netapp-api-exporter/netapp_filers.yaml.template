@@ -1,0 +1,4 @@
+- name: <exporter_name>
+  host: <netapp_management_host>
+  username: <username>
+  password: <password>

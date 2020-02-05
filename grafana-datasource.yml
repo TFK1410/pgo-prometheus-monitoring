@@ -1,0 +1,21 @@
+{
+    "apiVersion": 1,
+    "datasources": [
+        {
+            "access": "proxy",
+            "basicAuth": true,
+            "basicAuthPassword": "",
+            "basicAuthUser": "internal",
+            "editable": false,
+            "isDefault": true,
+            "jsonData": {
+                "tlsSkipVerify": true
+            },
+            "name": "PROMETHEUS",
+            "orgId": 1,
+            "type": "prometheus",
+            "url": "https://prometheus-k8s-pgo.pgo-monitoring.svc:9091",
+            "version": 1
+        }
+    ]
+}

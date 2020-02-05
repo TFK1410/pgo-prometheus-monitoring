@@ -1,0 +1,24 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    prometheus: k8s-pgo
+    role: recording-rules
+  name: prometheus-recs
+  namespace: pgo-monitoring
+spec:
+  groups:
+  - name: recording.rules
+    rules:
+    - expr: >
+        kubelet_volume_stats_available_bytes * 
+        on(persistentvolumeclaim,exported_namespace) 
+        group_left(pod,namespace) 
+        label_replace(kube_pod_spec_volumes_persistentvolumeclaims_info, "exported_namespace", "$1", "namespace", "(.*)")
+      record: 'pod_pvc_free_space'
+    - expr: >
+        pg_static * 
+        on(pod,namespace) 
+        group_left() 
+        pod_pvc_free_space
+      record: 'pg_free_space'
