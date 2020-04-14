@@ -1,0 +1,168 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alertmanager-custom
+  annotations:
+    serviceaccounts.openshift.io/oauth-redirectreference.alertmanager-custom: '{"kind":"OAuthRedirectReference","apiVersion":"v1","reference":{"kind":"Route","name":"alertmanager"}}'
+---
+apiVersion: authorization.openshift.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: alertmanager-custom
+roleRef:
+  name: alertmanager-custom
+subjects:
+- kind: ServiceAccount
+  name: alertmanager-custom
+  namespace: custom-monitoring
+userNames:
+- system:serviceaccount:custom-monitoring:alertmanager-custom
+---
+apiVersion: authorization.openshift.io/v1
+kind: ClusterRole
+metadata:
+  name: alertmanager-custom
+rules:
+- apiGroups:
+  - authentication.k8s.io
+  attributeRestrictions: null
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  attributeRestrictions: null
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+---
+apiVersion: v1
+kind: Route
+metadata:
+  name: alertmanager
+spec:
+  port:
+    targetPort: web
+  tls:
+    insecureEdgeTerminationPolicy: Redirect
+    termination: Reencrypt
+  to:
+    kind: Service
+    name: alertmanager-custom
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    service.alpha.openshift.io/serving-cert-secret-name: alertmanager-custom-tls
+  labels:
+    alertmanager: custom
+  name: alertmanager-custom
+spec:
+  ports:
+  - name: web
+    port: 9094
+    targetPort: web
+  selector:
+    app: alertmanager
+    alertmanager: custom
+  sessionAffinity: ClientIP
+  type: ClusterIP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Alertmanager
+metadata:
+  labels:
+    alertmanager: custom
+  name: custom
+  namespace: custom-monitoring
+spec:
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: alertmanager
+              operator: In
+              values:
+              - custom
+          namespaces:
+          - custom-monitoring
+          topologyKey: kubernetes.io/hostname
+        weight: 100
+  containers:
+    - args:
+        - '-provider=openshift'
+        - '-https-address=:9095'
+        - '-http-address='
+        - '-email-domain=*'
+        - '-upstream=http://localhost:9093'
+        - '-openshift-sar={"resource": "namespaces", "verb": "get"}'
+        - >-
+          -openshift-delegate-urls={"/": {"resource": "namespaces", "verb":
+          "get"}}
+        - '-tls-cert=/etc/tls/private/tls.crt'
+        - '-tls-key=/etc/tls/private/tls.key'
+        - >-
+          -client-secret-file=/var/run/secrets/kubernetes.io/serviceaccount/token
+        - '-cookie-secret-file=/etc/proxy/secrets/session_secret'
+        - '-openshift-service-account=alertmanager-custom'
+        - '-openshift-ca=/etc/pki/tls/cert.pem'
+        - '-openshift-ca=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt'
+        - '-skip-auth-regex=^/metrics'
+      image: 'openshift/oauth-proxy:latest'
+      name: alertmanager-proxy
+      ports:
+        - containerPort: 9095
+          name: web
+      resources: {}
+      volumeMounts:
+        - mountPath: /etc/tls/private
+          name: secret-alertmanager-custom-tls
+        - mountPath: /etc/proxy/secrets
+          name: secret-alertmanager-custom-proxy
+  externalUrl: <ALERTMANAGER_EXTERNAL_URL>
+  listenLocal: true
+  replicas: 3
+  secrets:
+    - alertmanager-custom-tls
+    - alertmanager-custom-proxy
+  serviceAccountName: alertmanager-custom
+  storage:
+    volumeClaimTemplate:
+      spec:
+        resources:
+          requests:
+            storage: 2Gi
+  version: v0.20.0
+---
+apiVersion: v1
+data:
+  alertmanager.yaml: >-
+    Z2xvYmFsOgogIHJlc29sdmVfdGltZW91dDogNW0Kcm91dGU6CiAgZ3JvdXBfYnk6IFsnam9iJ10KICBncm91cF93YWl0OiAzMHMKICBncm91cF9pbnRlcnZhbDogNW0KICByZXBlYXRfaW50ZXJ2YWw6IDEyaAogIHJlY2VpdmVyOiAnbnVsbCcKICByb3V0ZXM6CiAgLSBtYXRjaDoKICAgICAgYWxlcnRuYW1lOiBEZWFkTWFuc1N3aXRjaAogICAgcmVjZWl2ZXI6ICdudWxsJwpyZWNlaXZlcnM6Ci0gbmFtZTogJ251bGwnCg==   
+kind: Secret
+metadata:
+  name: alertmanager-custom
+type: Opaque
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    k8s-app: alertmanager
+  name: alertmanager
+spec:
+  endpoints:
+  - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    interval: 30s
+    port: web
+    scheme: https
+    tlsConfig:
+      caFile: /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
+      serverName: <ALERTMANAGER_SERVICE_HOSTNAME>
+  selector:
+    matchLabels:
+      alertmanager: custom
