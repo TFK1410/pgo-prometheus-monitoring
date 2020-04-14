@@ -1,0 +1,231 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana-custom
+  annotations:
+    serviceaccounts.openshift.io/oauth-redirectreference.grafana-custom: '{"kind":"OAuthRedirectReference","apiVersion":"v1","reference":{"kind":"Route","name":"grafana"}}'
+---
+apiVersion: authorization.openshift.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: grafana-custom
+roleRef:
+  name: grafana-custom
+subjects:
+- kind: ServiceAccount
+  name: grafana-custom
+  namespace: custom-monitoring
+userNames:
+- system:serviceaccount:custom-monitoring:grafana-custom
+---
+apiVersion: authorization.openshift.io/v1
+kind: ClusterRole
+metadata:
+  name: grafana-custom
+rules:
+- apiGroups:
+  - authentication.k8s.io
+  attributeRestrictions: null
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  attributeRestrictions: null
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+---
+apiVersion: v1
+kind: Route
+metadata:
+  name: grafana
+spec:
+  port:
+    targetPort: https
+  tls:
+    insecureEdgeTerminationPolicy: Redirect
+    termination: Reencrypt
+  to:
+    kind: Service
+    name: grafana-custom
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    service.alpha.openshift.io/serving-cert-secret-name: grafana-custom-tls
+  labels:
+    app: grafana-custom
+  name: grafana-custom
+spec:
+  ports:
+  - name: https
+    port: 3000
+    targetPort: https
+  selector:
+    app: grafana-custom
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-custom-dashboards
+data:
+  dashboards.yaml: |-
+    {
+        "apiVersion": 1,
+        "providers": [
+            {
+                "folder": "",
+                "name": "0",
+                "options": {
+                    "path": "/grafana-dashboard-definitions/0"
+                },
+                "orgId": 1,
+                "type": "file"
+            }
+        ]
+    }
+---
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  labels:
+    app: grafana-custom
+  name: grafana-custom
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana-custom
+  template:
+    metadata:
+      labels:
+        app: grafana-custom
+    spec:
+      containers:
+      - args:
+        - -config=/etc/grafana/grafana.ini
+        image: grafana/grafana:6.6.2
+        name: grafana
+        ports:
+        - containerPort: 3000
+          name: http
+        resources:
+          limits:
+            cpu: 200m
+            memory: 200Mi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+        volumeMounts:
+        - mountPath: /var/lib/grafana
+          name: grafana-custom-storage
+          readOnly: false
+        - mountPath: /etc/grafana/provisioning/datasources
+          name: grafana-custom-datasources
+          readOnly: false
+        - mountPath: /etc/grafana/provisioning/dashboards
+          name: grafana-custom-dashboards
+          readOnly: false
+        - mountPath: /etc/grafana
+          name: grafana-custom-config
+          readOnly: false
+        - mountPath: /grafana-dashboard-definitions/0/grafana-pgo-dashboard-bloat
+          name: grafana-pgo-dashboard-bloat
+          readOnly: false
+        - mountPath: /grafana-dashboard-definitions/0/grafana-pgo-dashboard-crud
+          name: grafana-pgo-dashboard-crud
+          readOnly: false
+        - mountPath: /grafana-dashboard-definitions/0/grafana-pgo-dashboard-yml
+          name: grafana-pgo-dashboard-yml
+          readOnly: false
+        - mountPath: /grafana-dashboard-definitions/0/grafana-pgo-dashboard-fs
+          name: grafana-pgo-dashboard-fs
+          readOnly: false
+        - mountPath: /grafana-dashboard-definitions/0/grafana-pgo-dashboard-pgbackrest
+          name: grafana-pgo-dashboard-pgbackrest
+          readOnly: false
+        - mountPath: /grafana-dashboard-definitions/0/grafana-pgo-dashboard-pgdetails
+          name: grafana-pgo-dashboard-pgdetails
+          readOnly: false
+        - mountPath: /grafana-dashboard-definitions/0/grafana-pgo-dashboard-pgoverview
+          name: grafana-pgo-dashboard-pgoverview
+          readOnly: false
+        - mountPath: /grafana-dashboard-definitions/0/grafana-pgo-dashboard-tablesize
+          name: grafana-pgo-dashboard-tablesize
+          readOnly: false
+      - args:
+        - -provider=openshift
+        - -https-address=:3000
+        - -http-address=
+        - -email-domain=*
+        - -upstream=http://localhost:3001
+        - '-openshift-sar={"resource": "namespaces", "verb": "get"}'
+        - '-openshift-delegate-urls={"/": {"resource": "namespaces", "verb": "get"}}'
+        - -tls-cert=/etc/tls/private/tls.crt
+        - -tls-key=/etc/tls/private/tls.key
+        - -client-secret-file=/var/run/secrets/kubernetes.io/serviceaccount/token
+        - -cookie-secret-file=/etc/proxy/secrets/session_secret
+        - -openshift-service-account=grafana-custom
+        - -openshift-ca=/etc/pki/tls/cert.pem
+        - -openshift-ca=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        - -skip-auth-regex=^/metrics
+        image: openshift/oauth-proxy:latest
+        name: grafana-proxy
+        ports:
+        - containerPort: 3000
+          name: https
+        volumeMounts:
+        - mountPath: /etc/tls/private
+          name: secret-grafana-custom-tls
+          readOnly: false
+        - mountPath: /etc/proxy/secrets
+          name: secret-grafana-custom-proxy
+          readOnly: false
+      serviceAccountName: grafana-custom
+      volumes:
+      - emptyDir: {}
+        name: grafana-custom-storage
+      - name: grafana-custom-datasources
+        secret:
+          secretName: grafana-custom-datasources
+      - configMap:
+          name: grafana-custom-dashboards
+        name: grafana-custom-dashboards
+      - name: grafana-custom-config
+        secret:
+          secretName: grafana-custom-config
+      - name: secret-grafana-custom-tls
+        secret:
+          secretName: grafana-custom-tls
+      - name: secret-grafana-custom-proxy
+        secret:
+          secretName: grafana-custom-proxy
+      - configMap:
+          name: grafana-pgo-dashboard-bloat
+        name: grafana-pgo-dashboard-bloat
+      - configMap:
+          name: grafana-pgo-dashboard-crud
+        name: grafana-pgo-dashboard-crud
+      - configMap:
+          name: grafana-pgo-dashboard-yml
+        name: grafana-pgo-dashboard-yml
+      - configMap:
+          name: grafana-pgo-dashboard-fs
+        name: grafana-pgo-dashboard-fs
+      - configMap:
+          name: grafana-pgo-dashboard-pgbackrest
+        name: grafana-pgo-dashboard-pgbackrest
+      - configMap:
+          name: grafana-pgo-dashboard-pgdetails
+        name: grafana-pgo-dashboard-pgdetails
+      - configMap:
+          name: grafana-pgo-dashboard-pgoverview
+        name: grafana-pgo-dashboard-pgoverview
+      - configMap:
+          name: grafana-pgo-dashboard-tablesize
+        name: grafana-pgo-dashboard-tablesize

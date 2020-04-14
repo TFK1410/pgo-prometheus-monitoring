@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: servicenow-receiver
+  name: servicenow-receiver
+spec:
+  ports:
+    - name: receiver
+      port: 9877
+      protocol: TCP
+      targetPort: 9877
+  selector:
+    app: servicenow-receiver
+  type: ClusterIP
+---
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  labels:
+    app: servicenow-receiver
+  name: servicenow-receiver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: servicenow-receiver
+  template:
+    metadata:
+      labels:
+        app: servicenow-receiver
+    spec:
+      containers:
+        - image: fxinnovation/alertmanager-webhook-servicenow:1.4.0
+          name: servicenow-receiver
+          ports:
+            - containerPort: 9877
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 100m
+              memory: 40Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
+          volumeMounts:
+            - mountPath: /config
+              name: secret-servicenow-receiver
+              readOnly: true
+      volumes:
+        - name: secret-servicenow-receiver
+          secret:
+            defaultMode: 420
+            secretName: servicenow-receiver
+  triggers:
+    - type: ConfigChange
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    k8s-app: servicenow-receiver
+  name: servicenow-receiver
+spec:
+  endpoints:
+  - interval: 30s
+    scrapeTimeout: 30s
+    port: receiver
+    scheme: http
+  selector:
+    matchLabels:
+      app: "servicenow-receiver"
+---
+apiVersion: v1
+data:
+  servicenow.yml: >-
+    c2VydmljZV9ub3c6CiAgaW5zdGFuY2VfbmFtZTogIkNIQU5HRV9NRSIKICB1c2VyX25hbWU6ICJDSEFOR0VfTUUiCiAgcGFzc3dvcmQ6ICJDSEFOR0VfTUUiCgp3b3JrZmxvdzoKICBpbmNpZGVudF9ncm91cF9rZXlfZmllbGQ6ICJDSEFOR0VfTUUiCiAgbm9fdXBkYXRlX3N0YXRlczogWzYsNyw4XQogIGluY2lkZW50X3VwZGF0ZV9maWVsZHM6IFsiY29tbWVudHMiXQoKZGVmYXVsdF9pbmNpZGVudDoKICBhc3NpZ25tZW50X2dyb3VwOiAie3suQ29tbW9uQW5ub3RhdGlvbnMuYXNzaWdubWVudF9ncm91cH19IgogIGNhdGVnb3J5OiAiRmFpbHVyZSIKICBjbWRiX2NpOiAie3suQ29tbW9uQW5ub3RhdGlvbnMuY21kYl9jaX19IgogIGNvbW1lbnRzOiAiQWxlcnRzIGxpc3Q6XG5cbnt7IHJhbmdlIC5BbGVydHMgfX1be3sgLlN0YXR1cyB9fV0ge3suU3RhcnRzQXR9fSB7ey5MYWJlbHMuYWxlcnRuYW1lfX1cbnt7LkFubm90YXRpb25zLmRlc2NyaXB0aW9ufX1cblxue3sgZW5kIH19IgogIGNvbXBhbnk6ICJ7ey5Db21tb25Bbm5vdGF0aW9ucy5jb21wYW55fX0iCiAgY29udGFjdF90eXBlIDogInt7LkNvbW1vbkFubm90YXRpb25zLmNvbnRhY3RfdHlwZX19IgogIGRlc2NyaXB0aW9uOiAiUmVjZWl2ZWQgYWxlcnRzIGZyb20gQWxlcnRNYW5hZ2VyIGF0IHt7LkV4dGVybmFsVVJMfX0gKFwie3suUmVjZWl2ZXJ9fVwiIHJlY2VpdmVyIGNvbmZpZ3VyYXRpb24pIHdpdGggY29tbW9uIGRlc2NyaXB0aW9uczpcblxue3suQ29tbW9uQW5ub3RhdGlvbnMuZGVzY3JpcHRpb259fSIKICBpbXBhY3Q6ICIyIgogIHNob3J0X2Rlc2NyaXB0aW9uOiAiQWxlcnRzIGZyb20gZ3JvdXA6IHt7IHJhbmdlICRrZXksICR2YWwgOj0gLkdyb3VwTGFiZWxzfX17eyAka2V5IH19Ont7ICR2YWwgfX0ge3tlbmR9fSIKICBzdWJjYXRlZ29yeTogIk1pc3NpbmcgUGFydCIKICB1cmdlbmN5OiAie3suQ29tbW9uQW5ub3RhdGlvbnMudXJnZW5jeX19Igo=
+kind: Secret
+metadata:
+  name: servicenow-receiver
+type: Opaque
